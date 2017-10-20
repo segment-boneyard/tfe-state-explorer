@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	prompt "github.com/c-bata/go-prompt"
@@ -81,7 +82,14 @@ func (t *tfelookup) LoadEnv(env string) {
 func (t *tfelookup) genGetPrompts() {
 	prompts := []prompt.Suggest{}
 
+	keys := []string{}
 	for k := range t.flat {
+		keys = append(keys, k)
+	}
+
+	sort.Sort(ByLength(keys))
+
+	for _, k := range keys {
 		s := prompt.Suggest{Text: k}
 		prompts = append(prompts, s)
 	}
@@ -111,8 +119,30 @@ func (t *tfelookup) Get(k string) {
 		return
 	}
 
-	fmt.Printf("%+v\n", val.Value)
+	fmt.Printf("%s\n", toString(val.Value))
 	return
+}
+
+func toString(v interface{}) string {
+	switch out := v.(type) {
+	case string:
+		return out
+	case []interface{}:
+		return formatList(out)
+	// TODO: better map support
+	default:
+		return fmt.Sprintf("%+v", out)
+	}
+}
+
+func formatList(vals []interface{}) string {
+	parts := []string{}
+
+	for _, v := range vals {
+		parts = append(parts, toString(v))
+	}
+
+	return strings.Join(parts, ",")
 }
 
 func (t *tfelookup) Executor(s string) {
@@ -227,3 +257,9 @@ func GetEnvs(token string) ([]string, error) {
 
 	return envs, nil
 }
+
+type ByLength []string
+
+func (a ByLength) Len() int           { return len(a) }
+func (a ByLength) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByLength) Less(i, j int) bool { return len(a[i]) < len(a[j]) }
