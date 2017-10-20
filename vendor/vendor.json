@@ -1,0 +1,25 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "B6NZp4c5xCE70Oy41LoRqXywJf8=",
+			"path": "github.com/c-bata/go-prompt",
+			"revision": "c292a2f4b4fe8563883871456e19028ff9df0f26",
+			"revisionTime": "2017-10-10T14:58:16Z"
+		},
+		{
+			"checksumSHA1": "L7dFEYzHkAatKpLgN5g0zvcuPwo=",
+			"path": "github.com/pkg/term/termios",
+			"revision": "b1f72af2d63057363398bec5873d16a98b453312",
+			"revisionTime": "2016-07-05T08:19:19Z"
+		},
+		{
+			"checksumSHA1": "/vc89vae+AsvNTGofKHOmmGRUfU=",
+			"path": "golang.org/x/sys/unix",
+			"revision": "8dbc5d05d6edcc104950cc299a1ce6641235bc86",
+			"revisionTime": "2017-10-13T13:31:29Z"
+		}
+	],
+	"rootPath": "github.com/segmentio/tfe-state-explorer"
+}
