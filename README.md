@@ -17,3 +17,11 @@ $ ./tfe-state-explorer
 ```
 
 Running requires you to have your ATLAS_TOKEN exported into the environment.
+
+## Example Session
+```
+>>> load segment-infra/stage
+loaded env segment-infra/stage
+>>> get module.core.public_zone_id
+ZRD43ZG0AMEDF
+```
