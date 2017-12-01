@@ -229,30 +229,39 @@ type AtlasStateResponse struct {
 }
 
 func GetEnvs(token string) ([]string, error) {
-	url := fmt.Sprintf("%s/api/v1/terraform/state", TFAddr)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return []string{}, err
-	}
-
-	req.Header.Add("X-Atlas-Token", os.Getenv("ATLAS_TOKEN"))
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return []string{}, err
-	}
-	defer resp.Body.Close()
-
-	d := json.NewDecoder(resp.Body)
-	var response AtlasStateResponse
-	if err := d.Decode(&response); err != nil {
-		return []string{}, err
-	}
-
 	envs := []string{}
-	for _, s := range response.States {
-		name := fmt.Sprintf("%s/%s", s.Environment.Username, s.Environment.Name)
-		envs = append(envs, name)
+	page := 1
+	for {
+		url := fmt.Sprintf("%s/api/v1/terraform/state?page=%d", TFAddr, page)
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return []string{}, err
+		}
+
+		req.Header.Add("X-Atlas-Token", os.Getenv("ATLAS_TOKEN"))
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return []string{}, err
+		}
+
+		d := json.NewDecoder(resp.Body)
+		var response AtlasStateResponse
+		if err := d.Decode(&response); err != nil {
+			resp.Body.Close()
+			return []string{}, err
+		}
+
+		if len(response.States) == 0 {
+			break
+		}
+
+		for _, s := range response.States {
+			name := fmt.Sprintf("%s/%s", s.Environment.Username, s.Environment.Name)
+			envs = append(envs, name)
+		}
+		resp.Body.Close()
+		page++
 	}
 
 	return envs, nil
