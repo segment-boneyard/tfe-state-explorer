@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	prompt "github.com/c-bata/go-prompt"
+	"github.com/segmentio/terraform-enterprise-go"
 	"github.com/segmentio/tfe-state-explorer/tfstate"
 )
 
@@ -18,11 +20,12 @@ const (
 )
 
 type tfelookup struct {
-	envs        []string
+	envs        map[string]Env
 	state       *tfstate.State
 	flat        map[string]tfstate.AttributeOrOutput
 	getPrompts  []prompt.Suggest
 	loadPrompts []prompt.Suggest
+	tfe2client  *tfe.Client
 }
 
 func NewTFELookup() *tfelookup {
@@ -31,8 +34,10 @@ func NewTFELookup() *tfelookup {
 		log.Fatal("Must set $ATLAS_TOKEN")
 	}
 
+	tfe2client := tfe.New(token, tfe.DefaultBaseURL)
+
 	// populate available envs
-	envs, err := GetEnvs(token)
+	envs, err := GetEnvs(token, tfe2client)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -42,6 +47,7 @@ func NewTFELookup() *tfelookup {
 		state:      nil,
 		flat:       nil,
 		getPrompts: nil,
+		tfe2client: tfe2client,
 	}
 
 	t.genLoadPrompts()
@@ -49,34 +55,69 @@ func NewTFELookup() *tfelookup {
 }
 
 func (t *tfelookup) LoadEnv(env string) {
-	url := fmt.Sprintf("%s/api/v1/terraform/state/%s",
-		TFAddr, env)
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		fmt.Printf("failed to load env")
+	details, ok := t.envs[env]
+	if !ok {
+		fmt.Printf("environment not found")
 		return
 	}
 
-	req.Header.Add("X-Atlas-Token", os.Getenv("ATLAS_TOKEN"))
+	if details.Version == 1 {
+		url := fmt.Sprintf("%s/api/v1/terraform/state/%s",
+			TFAddr, env)
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		fmt.Printf("failed to load env")
-		return
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			fmt.Printf("failed to load env")
+			return
+		}
+
+		req.Header.Add("X-Atlas-Token", os.Getenv("ATLAS_TOKEN"))
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			fmt.Printf("failed to load env")
+			return
+		}
+		defer resp.Body.Close()
+
+		state, err := tfstate.ReadState(resp.Body)
+		if err != nil {
+			fmt.Printf("failed to load env: %s\n", err.Error())
+			return
+		}
+
+		t.state = state
+		t.flat = state.FlattenAttributesAndOutputs()
+		t.genGetPrompts()
+		fmt.Printf("loaded env %s\n", env)
+	} else if details.Version == 2 {
+		parts := strings.SplitN(env, "/", 2)
+		org := parts[0]
+		workspace := parts[1]
+		versions, err := t.tfe2client.ListStateVersions(org, workspace)
+		if err != nil {
+			fmt.Printf("Failed to load state versions for %s: %s\n", env, err)
+			return
+		}
+
+		latest := versions[0]
+		raw, err := t.tfe2client.DownloadState(org, workspace, latest.ID)
+		if err != nil {
+			fmt.Printf("Failed to download state: %s\n", err)
+			return
+		}
+
+		state, err := tfstate.ReadState(bytes.NewReader(raw))
+		if err != nil {
+			fmt.Printf("failed to read state: %s\n", err)
+			return
+		}
+
+		t.state = state
+		t.flat = state.FlattenAttributesAndOutputs()
+		t.genGetPrompts()
+		fmt.Printf("loaded env %s\n", env)
 	}
-	defer resp.Body.Close()
-
-	state, err := tfstate.ReadState(resp.Body)
-	if err != nil {
-		fmt.Printf("failed to load env: %s\n", err.Error())
-		return
-	}
-
-	t.state = state
-	t.flat = state.FlattenAttributesAndOutputs()
-	t.genGetPrompts()
-	fmt.Printf("loaded env %s\n", env)
 }
 
 func (t *tfelookup) genGetPrompts() {
@@ -99,8 +140,8 @@ func (t *tfelookup) genGetPrompts() {
 func (t *tfelookup) genLoadPrompts() {
 	prompts := []prompt.Suggest{}
 
-	for _, e := range t.envs {
-		s := prompt.Suggest{Text: e}
+	for name := range t.envs {
+		s := prompt.Suggest{Text: name}
 		prompts = append(prompts, s)
 	}
 
@@ -228,28 +269,33 @@ type AtlasStateResponse struct {
 	States []AvailableState `json:"states"`
 }
 
-func GetEnvs(token string) ([]string, error) {
-	envs := []string{}
+type Env struct {
+	Name    string
+	Version int
+}
+
+func GetEnvs(token string, tfe2client *tfe.Client) (map[string]Env, error) {
+	envs := map[string]Env{}
 	page := 1
 	for {
 		url := fmt.Sprintf("%s/api/v1/terraform/state?page=%d", TFAddr, page)
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
-			return []string{}, err
+			return envs, err
 		}
 
 		req.Header.Add("X-Atlas-Token", os.Getenv("ATLAS_TOKEN"))
 
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			return []string{}, err
+			return envs, err
 		}
 
 		d := json.NewDecoder(resp.Body)
 		var response AtlasStateResponse
 		if err := d.Decode(&response); err != nil {
 			resp.Body.Close()
-			return []string{}, err
+			return envs, err
 		}
 
 		if len(response.States) == 0 {
@@ -258,10 +304,34 @@ func GetEnvs(token string) ([]string, error) {
 
 		for _, s := range response.States {
 			name := fmt.Sprintf("%s/%s", s.Environment.Username, s.Environment.Name)
-			envs = append(envs, name)
+			envs[name] = Env{
+				Name:    name,
+				Version: 1,
+			}
 		}
 		resp.Body.Close()
 		page++
+	}
+
+	// add v2 envs
+	organizations, err := tfe2client.ListOrganizations()
+	if err != nil {
+		return envs, err
+	}
+
+	for _, organization := range organizations {
+		workspaces, err := tfe2client.ListWorkspaces(organization.ID)
+		if err != nil {
+			return envs, err
+		}
+
+		for _, workspace := range workspaces {
+			name := fmt.Sprintf("%s/%s", organization.ID, workspace.Attributes.Name)
+			envs[name] = Env{
+				Name:    name,
+				Version: 2,
+			}
+		}
 	}
 
 	return envs, nil
