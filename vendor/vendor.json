@@ -15,10 +15,10 @@
 			"revisionTime": "2016-07-05T08:19:19Z"
 		},
 		{
-			"checksumSHA1": "SdGA67bpQvVKL21deCuhWvJwEYY=",
+			"checksumSHA1": "a8V51ZqChvG0ZkTQ9XW29EM+Wbo=",
 			"path": "github.com/segmentio/terraform-enterprise-go",
-			"revision": "99678b896ca8d1d855180512a0cddf81284589b7",
-			"revisionTime": "2018-06-29T22:21:02Z"
+			"revision": "d7e2c0eafa7b5b30f0ad689d54d7d1b98443668e",
+			"revisionTime": "2018-08-07T21:56:34Z"
 		},
 		{
 			"checksumSHA1": "/vc89vae+AsvNTGofKHOmmGRUfU=",
